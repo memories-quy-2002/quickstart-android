@@ -19,6 +19,9 @@ package com.google.firebase.quickstart.fcm.java;
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -41,6 +44,7 @@ import com.google.firebase.quickstart.fcm.databinding.ActivityMainBinding;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
+    private ActivityMainBinding binding;
     private final ActivityResultLauncher<String> requestPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 if (isGranted) {
@@ -55,7 +59,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ActivityMainBinding binding = ActivityMainBinding.inflate(getLayoutInflater());
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -68,13 +72,6 @@ public class MainActivity extends AppCompatActivity {
                     channelName, NotificationManager.IMPORTANCE_LOW));
         }
 
-        // If a notification message is tapped, any data accompanying the notification
-        // message is available in the intent extras. In this sample the launcher
-        // intent is fired when the notification is tapped, so any accompanying data would
-        // be handled here. If you want a different intent fired, set the click_action
-        // field of the notification message to the desired intent. The launcher intent
-        // is used when no click_action is specified.
-        //
         // Handle possible data accompanying notification message.
         // [START handle_data_extras]
         if (getIntent().getExtras() != null) {
@@ -109,31 +106,57 @@ public class MainActivity extends AppCompatActivity {
         binding.logTokenButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                // Get token
-                // [START log_reg_token]
-                FirebaseMessaging.getInstance().getToken()
-                    .addOnCompleteListener(new OnCompleteListener<String>() {
-                        @Override
-                        public void onComplete(@NonNull Task<String> task) {
-                          if (!task.isSuccessful()) {
-                            Log.w(TAG, "Fetching FCM registration token failed", task.getException());
-                            return;
-                          }
-
-                          // Get new FCM registration token
-                          String token = task.getResult();
-
-                          // Log and toast
-                          String msg = getString(R.string.msg_token_fmt, token);
-                          Log.d(TAG, msg);
-                          Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
-                        }
-                    });
-                // [END log_reg_token]
+                fetchAndShowToken();
             }
         });
 
+        // Make the token text tappable to re-copy, and show it on launch.
+        binding.informationTextView.setTextIsSelectable(true);
+        binding.informationTextView.setOnClickListener(v -> {
+            CharSequence t = binding.informationTextView.getText();
+            if (t != null && t.toString().startsWith("token:")) {
+                copyToClipboard(t.toString().substring("token:".length()).trim());
+            }
+        });
+        fetchAndShowToken();
+
         askNotificationPermission();
+    }
+
+    /** Fetch the FCM token, then show it on screen and copy it to the clipboard. */
+    private void fetchAndShowToken() {
+        // [START log_reg_token]
+        FirebaseMessaging.getInstance().getToken()
+            .addOnCompleteListener(new OnCompleteListener<String>() {
+                @Override
+                public void onComplete(@NonNull Task<String> task) {
+                  if (!task.isSuccessful()) {
+                    Log.w(TAG, "Fetching FCM registration token failed", task.getException());
+                    String err = "Token fetch failed: "
+                            + (task.getException() != null ? task.getException().getMessage() : "unknown");
+                    binding.informationTextView.setText(err);
+                    Toast.makeText(MainActivity.this, err, Toast.LENGTH_LONG).show();
+                    return;
+                  }
+
+                  // Get new FCM registration token
+                  String token = task.getResult();
+
+                  // Show on screen (selectable), log, and copy to clipboard.
+                  binding.informationTextView.setText("token:" + token);
+                  Log.d(TAG, getString(R.string.msg_token_fmt, token));
+                  copyToClipboard(token);
+                }
+            });
+        // [END log_reg_token]
+    }
+
+    private void copyToClipboard(String token) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("FCM token", token));
+            Toast.makeText(this, "FCM token copied to clipboard", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void askNotificationPermission() {
