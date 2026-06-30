@@ -19,9 +19,11 @@ package com.google.firebase.quickstart.fcm.java;
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -33,6 +35,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.gms.tasks.OnCompleteListener;
@@ -69,7 +73,7 @@ public class MainActivity extends AppCompatActivity {
             NotificationManager notificationManager =
                     getSystemService(NotificationManager.class);
             notificationManager.createNotificationChannel(new NotificationChannel(channelId,
-                    channelName, NotificationManager.IMPORTANCE_LOW));
+                    channelName, NotificationManager.IMPORTANCE_DEFAULT));
         }
 
         // Handle possible data accompanying notification message.
@@ -109,6 +113,11 @@ public class MainActivity extends AppCompatActivity {
                 fetchAndShowToken();
             }
         });
+
+        // Local "fire a notification" test — proves the app can DISPLAY a
+        // notification (channel + permission + rendering), independent of FCM
+        // or any google-services.json. Same channel/icon the FCM handler uses.
+        binding.testNotificationButton.setOnClickListener(v -> fireTestNotification());
 
         // Make the token text tappable to re-copy, and show it on launch.
         binding.informationTextView.setTextIsSelectable(true);
@@ -157,6 +166,48 @@ public class MainActivity extends AppCompatActivity {
             clipboard.setPrimaryClip(ClipData.newPlainText("FCM token", token));
             Toast.makeText(this, "FCM token copied to clipboard", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /**
+     * Post a local notification using the SAME channel + icon the FCM handler
+     * uses. This verifies notifications actually appear on the device, with no
+     * dependency on Firebase config or a valid token.
+     */
+    private void fireTestNotification() {
+        String channelId = getString(R.string.default_notification_channel_id);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            nm.createNotificationChannel(new NotificationChannel(channelId,
+                    getString(R.string.default_notification_channel_name),
+                    NotificationManager.IMPORTANCE_DEFAULT));
+        }
+
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent,
+                PendingIntent.FLAG_IMMUTABLE);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(R.drawable.ic_stat_ic_notification)
+                .setContentTitle("Test notification")
+                .setContentText("If you can see this, notifications work on this app!")
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(pendingIntent);
+
+        // notify() needs POST_NOTIFICATIONS on API 33+. We request it in
+        // onCreate; if the user denied it, prompt again before firing.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Grant notification permission, then tap again", Toast.LENGTH_LONG).show();
+            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            return;
+        }
+
+        NotificationManagerCompat.from(this).notify(1001, builder.build());
+        Toast.makeText(this, "Test notification fired", Toast.LENGTH_SHORT).show();
     }
 
     private void askNotificationPermission() {
